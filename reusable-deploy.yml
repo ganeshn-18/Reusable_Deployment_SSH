@@ -1,0 +1,86 @@
+# Put this file in a central repo, e.g. <org>/devops-workflows
+# Path: .github/workflows/reusable-deploy.yml
+name: Reusable Deploy
+
+on:
+  workflow_call:
+    inputs:
+      app_name:
+        description: Application name (used for logging/concurrency)
+        required: true
+        type: string
+      deploy_path:
+        description: Directory on the server that contains deploy.sh
+        required: true
+        type: string
+      server:
+        description: Server host/IP (falls back to org variable DEPLOY_SERVER)
+        required: false
+        type: string
+        default: ""
+      user:
+        description: SSH user (falls back to org variable DEPLOY_USER)
+        required: false
+        type: string
+        default: ""
+      port:
+        description: SSH port
+        required: false
+        type: string
+        default: "22"
+      script:
+        description: Script to run on the server
+        required: false
+        type: string
+        default: "./deploy.sh"
+      environment:
+        description: Optional GitHub Environment name (for approvals)
+        required: false
+        type: string
+        default: ""
+    secrets:
+      SSH_KEY:
+        description: Private SSH key (falls back to org secret via secrets inherit)
+        required: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || null }}
+    concurrency:
+      group: deploy-${{ inputs.app_name }}
+      cancel-in-progress: false
+
+    env:
+      DEPLOY_SERVER: ${{ inputs.server || vars.DEPLOY_SERVER }}
+      DEPLOY_USER: ${{ inputs.user || vars.DEPLOY_USER }}
+      DEPLOY_PATH: ${{ inputs.deploy_path }}
+      DEPLOY_PORT: ${{ inputs.port }}
+      DEPLOY_SCRIPT: ${{ inputs.script }}
+
+    steps:
+      - name: Validate configuration
+        run: |
+          [ -n "$DEPLOY_SERVER" ] || { echo "::error::server not set (input or org variable DEPLOY_SERVER)"; exit 1; }
+          [ -n "$DEPLOY_USER" ]   || { echo "::error::user not set (input or org variable DEPLOY_USER)"; exit 1; }
+
+      - name: Setup SSH
+        env:
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          # Pin the host key instead of disabling host key checking
+          ssh-keyscan -p "$DEPLOY_PORT" -H "$DEPLOY_SERVER" >> ~/.ssh/known_hosts
+
+      - name: Deploy ${{ inputs.app_name }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" \
+            "$DEPLOY_USER@$DEPLOY_SERVER" \
+            "cd '$DEPLOY_PATH' && $DEPLOY_SCRIPT"
+
+      - name: Cleanup
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
