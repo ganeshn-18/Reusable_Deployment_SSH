@@ -1,0 +1,19 @@
+# Put this in EACH app repo
+# Path: .github/workflows/deploy.yml
+name: Deploy
+ 
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+ 
+jobs:
+  deploy:
+    uses: YOUR_ORG/devops-workflows/.github/workflows/reusable-deploy.yml@main
+    with:
+      app_name: my-app
+      deploy_path: /var/www/my-app
+      # server and user are optional: they come from org variables
+      # DEPLOY_SERVER and DEPLOY_USER unless you override them here
+    secrets: inherit   # passes org-level SSH_KEY automatically
+ 
